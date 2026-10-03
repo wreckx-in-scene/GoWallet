@@ -1,0 +1,84 @@
+package wallet
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
+)
+
+// server will wrap the grpc and everything it depends on
+type Server struct {
+	cfg  Config
+	log  *slog.Logger
+	srv  *grpc.Server
+	hsrv *health.Server
+}
+
+// new server build the grpc server and registers its services
+func NewServer(cfg Config, log *slog.Logger) *Server {
+	s := &Server{
+		cfg:  cfg,
+		log:  log,
+		srv:  grpc.NewServer(),
+		hsrv: health.NewServer(),
+	}
+
+	grpc_health_v1.RegisterHealthServer(s.srv, s.hsrv)
+
+	if cfg.Env == "dev" {
+		reflection.Register(s.srv)
+	}
+
+	return s
+}
+
+// run starts listening and blocks until ctx is cancelled
+// then follows a graceful shutdown
+
+func (s *Server) Run(ctx context.Context) error {
+	addr := fmt.Sprintf(":%d", s.cfg.GRPCPort)
+
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", addr, err)
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		s.log.Info("grpc server listening", "addr", addr)
+		serveErr <- s.srv.Serve(lis)
+	}()
+
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("grpc serve: %w", err)
+	case <-ctx.Done():
+		s.log.Info("shutdown signal received")
+	}
+
+	//telling heathcheckers we are going away , then drain
+	s.hsrv.Shutdown()
+
+	stopped := make(chan struct{})
+	go func() {
+		s.srv.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		s.log.Info("grpc server stopped gracefully")
+	case <-time.After(10 * time.Second):
+		s.log.Warn("graceful stop timed out, forcing stop")
+		s.srv.Stop()
+	}
+
+	return nil
+}

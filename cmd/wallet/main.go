@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
@@ -33,5 +36,9 @@ func run() error {
 
 	log.Debug("config loaded", "grpc_port", cfg.GRPCPort)
 	log.Info("wallet starting", "env", cfg.Env, "grpc_port", cfg.GRPCPort)
-	return nil
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return wallet.NewServer(cfg, log).Run(ctx)
 }
