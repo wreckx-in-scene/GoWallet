@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -49,4 +50,15 @@ func Int(key string, fallback int) (int, error) {
 	}
 
 	return n, nil
+}
+
+// SplitList splits a comma-separated value like "a:9092,b:9092", dropping blanks.
+func SplitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

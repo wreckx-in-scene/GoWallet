@@ -7,8 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/outbox"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/postgres"
 	"github.com/wreckx-in-scene/GoWallet/internal/wallet"
 )
@@ -48,5 +50,20 @@ func run() error {
 	defer pool.Close()
 	log.Info("database connected")
 
-	return wallet.NewServer(cfg, log, pool).Run(ctx)
+	kafka, err := kgo.NewClient(kgo.SeedBrokers(cfg.KafkaBrokers...))
+	if err != nil {
+		return fmt.Errorf("create kafka client: %w", err)
+	}
+	defer kafka.Close()
+
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		outbox.NewRelay(pool, kafka, log).Run(ctx)
+	}()
+
+	srvErr := wallet.NewServer(cfg, log, pool).Run(ctx)
+	stop()      // cancel ctx even if Run failed early, so the relay stops too
+	<-relayDone // wait until the relay is really done with the DB
+	return srvErr
 }

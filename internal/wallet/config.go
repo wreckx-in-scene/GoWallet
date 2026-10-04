@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	Env      string
-	LogLevel string
-	GRPCPort int
-	DBURL    string
+	Env          string
+	LogLevel     string
+	GRPCPort     int
+	DBURL        string
+	KafkaBrokers []string
 }
 
 func LoadConfig() (Config, error) {
@@ -19,15 +20,20 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("wallet config: %w", err)
 	}
 
+	brokers, err := config.Required("KAFKA_BROKERS")
+	if err != nil {
+		return Config{}, fmt.Errorf("wallet config: %w", err)
+	}
 	port, err := config.Int("WALLET_GRPC_PORT", 50051)
 	if err != nil {
 		return Config{}, fmt.Errorf("wallet config: %w", err)
 	}
 
 	return Config{
-		Env:      config.String("APP_ENV", "dev"),
-		LogLevel: config.String("LOG_LEVEL", "info"),
-		GRPCPort: port,
-		DBURL:    dbURL,
+		Env:          config.String("APP_ENV", "dev"),
+		LogLevel:     config.String("LOG_LEVEL", "info"),
+		GRPCPort:     port,
+		DBURL:        dbURL,
+		KafkaBrokers: config.SplitList(brokers),
 	}, nil
 }
