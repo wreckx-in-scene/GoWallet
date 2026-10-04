@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	walletv1 "github.com/wreckx-in-scene/GoWallet/gen/wallet/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -35,6 +36,8 @@ func NewServer(cfg Config, log *slog.Logger, db *pgxpool.Pool) *Server {
 
 	s.hsrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	grpc_health_v1.RegisterHealthServer(s.srv, s.hsrv)
+
+	walletv1.RegisterWalletServiceServer(s.srv, &handler{store: NewStore(db), log: log})
 
 	if cfg.Env == "dev" {
 		reflection.Register(s.srv)
