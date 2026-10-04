@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+option go_package = "github.com/wreckx-in-scene/goWallet/gen/wallet/v1;walletv1";
+
+// WalletService owns balances and money movement. All amounts are in paise.
+service WalletService {
+  // CreateWallet returns the user's wallet, creating it if needed (idempotent).
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+
+  // Transfer is atomic and idempotent on transfer_id.
+  rpc Transfer(TransferRequest) returns (TransferResponse);
+}
+
+message CreateWalletRequest {
+  string user_id = 1;
+}
+
+message CreateWalletResponse {
+  string wallet_id = 1;
+}
+
+message GetBalanceRequest {
+  string wallet_id = 1;
+}
+
+message GetBalanceResponse {
+  int64 balance_paise = 1;
+}
+
+message TransferRequest {
+  string transfer_id = 1;
+  string from_wallet_id = 2;
+  string to_wallet_id = 3;
+  int64 amount_paise = 4;
+}
+
+message TransferResponse {}
