@@ -33,6 +33,7 @@ func NewServer(cfg Config, log *slog.Logger, db *pgxpool.Pool) *Server {
 		db:   db,
 	}
 
+	s.hsrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	grpc_health_v1.RegisterHealthServer(s.srv, s.hsrv)
 
 	if cfg.Env == "dev" {
@@ -52,6 +53,8 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
+
+	go s.watchDB(ctx)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -84,4 +87,34 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// watchDB pings the database periodically and reports the result
+// through the gRPC health service. It stops when ctx is cancelled.
+func (s *Server) watchDB(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := s.db.Ping(pingCtx)
+		cancel()
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		status := grpc_health_v1.HealthCheckResponse_SERVING
+		if err != nil {
+			status = grpc_health_v1.HealthCheckResponse_NOT_SERVING
+			s.log.Warn("database ping failed", "error", err)
+		}
+		s.hsrv.SetServingStatus("", status)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
