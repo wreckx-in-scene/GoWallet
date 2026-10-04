@@ -14,6 +14,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
+  
+  kafka:
+    image: apache/kafka:4.0.0
+    ports:
+      - "9092:9092"
 volumes:
   pgdata: 
