@@ -9,6 +9,7 @@ import (
 
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/postgres"
 	"github.com/wreckx-in-scene/GoWallet/internal/wallet"
 )
 
@@ -40,5 +41,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return wallet.NewServer(cfg, log).Run(ctx)
+	pool, err := postgres.NewPool(ctx, cfg.DBURL)
+	if err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+	defer pool.Close()
+	log.Info("database connected")
+
+	return wallet.NewServer(cfg, log, pool).Run(ctx)
 }

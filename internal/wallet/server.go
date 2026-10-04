@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -19,15 +20,17 @@ type Server struct {
 	log  *slog.Logger
 	srv  *grpc.Server
 	hsrv *health.Server
+	db   *pgxpool.Pool
 }
 
 // new server build the grpc server and registers its services
-func NewServer(cfg Config, log *slog.Logger) *Server {
+func NewServer(cfg Config, log *slog.Logger, db *pgxpool.Pool) *Server {
 	s := &Server{
 		cfg:  cfg,
 		log:  log,
 		srv:  grpc.NewServer(),
 		hsrv: health.NewServer(),
+		db:   db,
 	}
 
 	grpc_health_v1.RegisterHealthServer(s.srv, s.hsrv)
