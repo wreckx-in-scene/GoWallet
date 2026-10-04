@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package fraud.v1;
+
+option go_package = "github.com/wreckx-in-scene/goWallet/gen/fraud/v1;fraudv1";
+
+service FraudService {
+  // Check decides whether a payment may proceed. Idempotent on payment_id.
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message CheckRequest {
+  string payment_id = 1;
+  string user_id = 2;
+  int64 amount_paise = 3;
+}
+
+message CheckResponse {
+  bool approved = 1;
+  string reason = 2; // empty when approved
+}
