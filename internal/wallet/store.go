@@ -118,6 +118,30 @@ func (s *Store) Transfer(ctx context.Context, p TransferParams) error {
 	}
 	defer tx.Rollback(ctx) // no-op once Commit has succeeded
 
+	// 2. Lock both wallets, always the smaller id first (no deadlocks).
+	first, second := p.FromID, p.ToID
+	if first > second {
+		first, second = second, first
+	}
+	type locked struct {
+		balance int64
+		kind    string
+	}
+	wallets := make(map[string]locked, 2)
+	for _, id := range []string{first, second} {
+		var w locked
+		err := tx.QueryRow(ctx,
+			`SELECT balance, kind FROM wallets WHERE id = $1::uuid FOR UPDATE`, id).
+			Scan(&w.balance, &w.kind)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrWalletNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock wallet: %w", err)
+		}
+		wallets[id] = w
+	}
+
 	// 1. Idempotency gate: the primary key on transfers.id decides.
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO transfers (id, from_wallet_id, to_wallet_id, amount)
@@ -145,30 +169,6 @@ func (s *Store) Transfer(ctx context.Context, p TransferParams) error {
 			return ErrIdempotencyConflict
 		}
 		return nil
-	}
-
-	// 2. Lock both wallets, always the smaller id first (no deadlocks).
-	first, second := p.FromID, p.ToID
-	if first > second {
-		first, second = second, first
-	}
-	type locked struct {
-		balance int64
-		kind    string
-	}
-	wallets := make(map[string]locked, 2)
-	for _, id := range []string{first, second} {
-		var w locked
-		err := tx.QueryRow(ctx,
-			`SELECT balance, kind FROM wallets WHERE id = $1::uuid FOR UPDATE`, id).
-			Scan(&w.balance, &w.kind)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrWalletNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("lock wallet: %w", err)
-		}
-		wallets[id] = w
 	}
 
 	// 3. Balance check, now that nobody else can change it.
