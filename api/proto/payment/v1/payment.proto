@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/wreckx-in-scene/goWallet/gen/payment/v1;paymentv1";
+
+service PaymentService {
+  // Idempotent on (user_id, idempotency_key).
+  rpc CreatePayment(CreatePaymentRequest) returns (CreatePaymentResponse);
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse);
+}
+
+message CreatePaymentRequest {
+  string user_id = 1;
+  string idempotency_key = 2;
+  string to_wallet_id = 3;
+  int64 amount_paise = 4;
+}
+
+message Payment {
+  string payment_id = 1;
+  string status = 2; // PENDING, FRAUD_APPROVED, COMPLETED, REJECTED, FAILED
+  string failure_reason = 3;
+  string from_wallet_id = 4;
+  string to_wallet_id = 5;
+  int64 amount_paise = 6;
+}
+
+message CreatePaymentResponse {
+  Payment payment = 1;
+}
+
+message GetPaymentRequest {
+  string user_id = 1;
+  string payment_id = 2;
+}
+
+message GetPaymentResponse {
+  Payment payment = 1;
+}
