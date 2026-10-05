@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/wreckx-in-scene/goWallet/gen/auth/v1;authv1";
+
+service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (TokenPair);
+  rpc Refresh(RefreshRequest) returns (TokenPair);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  // Public key (raw Ed25519, 32 bytes) used to verify access tokens.
+  rpc GetPublicKey(GetPublicKeyRequest) returns (GetPublicKeyResponse);
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in_seconds = 3;
+}
+
+message GetPublicKeyRequest {}
+
+message GetPublicKeyResponse {
+  string key_id = 1;
+  bytes public_key = 2;
+}
