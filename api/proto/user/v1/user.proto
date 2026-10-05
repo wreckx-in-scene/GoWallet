@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/wreckx-in-scene/goWallet/gen/user/v1;userv1";
+
+service UserService {
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+}
+
+message Profile {
+  string user_id = 1;
+  string email = 2;
+  string full_name = 3;
+}
+
+message GetProfileRequest {
+  string user_id = 1;
+}
+
+message GetProfileResponse {
+  Profile profile = 1;
+}
+
+message UpdateProfileRequest {
+  string user_id = 1;
+  string full_name = 2;
+}
+
+message UpdateProfileResponse {
+  Profile profile = 1;
+}
