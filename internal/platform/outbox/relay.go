@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -16,11 +18,36 @@ const (
 	produceTimeout = 10 * time.Second
 )
 
+var (
+	pendingRows = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "outbox_pending_rows", Help: "Outbox rows not yet published to Kafka.",
+	})
+	oldestPendingAge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "outbox_oldest_pending_age_seconds", Help: "Age of the oldest unpublished outbox row.",
+	})
+	publishedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "outbox_published_total", Help: "Outbox rows published to Kafka.",
+	})
+)
+
 // Relay moves rows from a service's outbox table into Kafka.
 type Relay struct {
 	db     *pgxpool.Pool
 	client *kgo.Client
 	log    *slog.Logger
+}
+
+func (r *Relay) observeLag(ctx context.Context) {
+	var n int64
+	var age float64
+	err := r.db.QueryRow(ctx, `
+		SELECT count(*), COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::float8
+		FROM outbox WHERE published_at IS NULL`).Scan(&n, &age)
+	if err != nil {
+		return
+	}
+	pendingRows.Set(float64(n))
+	oldestPendingAge.Set(age)
 }
 
 func NewRelay(db *pgxpool.Pool, client *kgo.Client, log *slog.Logger) *Relay {
@@ -34,6 +61,8 @@ func (r *Relay) Run(ctx context.Context) {
 
 	for {
 		n, err := r.publishBatch(ctx)
+		publishedTotal.Add(float64(n))
+		r.observeLag(ctx)
 		if err != nil && ctx.Err() == nil {
 			r.log.Error("outbox relay failed", "error", err)
 		}

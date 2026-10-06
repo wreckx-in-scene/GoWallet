@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	walletv1 "github.com/wreckx-in-scene/GoWallet/gen/wallet/v1"
 )
@@ -14,6 +16,19 @@ import (
 // Reconciler checks that the ledger agrees with the wallet service.
 // It only looks at data older than 30s and re-checks mismatches once,
 // so events still in flight do not raise false alarms.
+
+var (
+	driftWallets = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ledger_reconciliation_drift_wallets", Help: "Wallets whose ledger sum differs from the wallet balance.",
+	})
+	unmatchedTransfers = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ledger_unmatched_transfers", Help: "Transfers whose debit and credit legs do not balance.",
+	})
+	lastReconcile = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ledger_last_reconciliation_timestamp_seconds", Help: "Unix time of the last finished reconciliation.",
+	})
+)
+
 type Reconciler struct {
 	db     *pgxpool.Pool
 	wallet walletv1.WalletServiceClient
@@ -79,6 +94,10 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 		drift++
 		r.log.Error("reconciliation drift", "wallet_id", id, "ledger", ledgerSum, "wallet", balance, "diff", balance-ledgerSum)
 	}
+
+	driftWallets.Set(float64(drift))
+	unmatchedTransfers.Set(float64(len(unmatched)))
+	lastReconcile.SetToCurrentTime()
 
 	r.log.Info("reconciliation finished",
 		"wallets_checked", len(wallets), "drift", drift, "unmatched_transfers", len(unmatched))

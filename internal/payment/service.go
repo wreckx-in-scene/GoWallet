@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	fraudv1 "github.com/wreckx-in-scene/GoWallet/gen/fraud/v1"
 	walletv1 "github.com/wreckx-in-scene/GoWallet/gen/wallet/v1"
 	"google.golang.org/grpc/codes"
@@ -23,6 +25,9 @@ const (
 )
 
 var ErrInvalid = errors.New("invalid payment request")
+var paymentOutcomes = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "payments_final_total", Help: "Payments reaching a final status.",
+}, []string{"status"})
 
 type Service struct {
 	store  *Store
@@ -168,6 +173,10 @@ func (s *Service) move(ctx context.Context, p Payment, from, to, reason string, 
 	}
 	if !moved {
 		return s.store.Get(ctx, p.ID) // someone else advanced it first: take their result
+	}
+	switch to {
+	case StatusCompleted, StatusRejected, StatusFailed:
+		paymentOutcomes.WithLabelValues(to).Inc()
 	}
 	p.Status, p.FailureReason = to, reason
 	return p, nil

@@ -34,3 +34,7 @@ func (h *handler) Check(ctx context.Context, req *fraudv1.CheckRequest) (*fraudv
 	}
 	return &fraudv1.CheckResponse{Approved: d.Approved, Reason: d.Reason}, nil
 }
+
+func NewHandler(store *Store, log *slog.Logger) fraudv1.FraudServiceServer {
+	return &handler{store: store, log: log}
+}

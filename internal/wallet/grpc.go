@@ -4,12 +4,34 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	walletv1 "github.com/wreckx-in-scene/GoWallet/gen/wallet/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+var transferDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "wallet_transfer_duration_seconds",
+	Help:    "Duration of wallet transfers by outcome.",
+	Buckets: prometheus.DefBuckets,
+}, []string{"outcome"})
+
+func outcome(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, ErrInsufficientFunds):
+		return "insufficient_funds"
+	case errors.Is(err, ErrInvalidTransfer), errors.Is(err, ErrWalletNotFound), errors.Is(err, ErrIdempotencyConflict):
+		return "rejected"
+	default:
+		return "error"
+	}
+}
 
 // handler implements the generated WalletServiceServer interface.
 type handler struct {
@@ -41,15 +63,18 @@ func (h *handler) GetBalance(ctx context.Context, req *walletv1.GetBalanceReques
 }
 
 func (h *handler) Transfer(ctx context.Context, req *walletv1.TransferRequest) (*walletv1.TransferResponse, error) {
+	start := time.Now()
 	err := h.store.Transfer(ctx, TransferParams{
 		ID:     req.GetTransferId(),
 		FromID: req.GetFromWalletId(),
 		ToID:   req.GetToWalletId(),
 		Amount: req.GetAmountPaise(),
 	})
+	transferDuration.WithLabelValues(outcome(err)).Observe(time.Since(start).Seconds())
 	if err != nil {
 		return nil, h.toStatus("Transfer", err)
 	}
+
 	return &walletv1.TransferResponse{}, nil
 }
 
@@ -71,4 +96,8 @@ func (h *handler) toStatus(op string, err error) error {
 		h.log.Error("wallet operation failed", "op", op, "error", err)
 		return status.Error(codes.Internal, "internal error")
 	}
+}
+
+func NewHandler(store *Store, log *slog.Logger) walletv1.WalletServiceServer {
+	return &handler{store: store, log: log}
 }

@@ -8,11 +8,15 @@ import (
 	"syscall"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	walletv1 "github.com/wreckx-in-scene/GoWallet/gen/wallet/v1"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/grpcserver"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/metrics"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/outbox"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/postgres"
 	"github.com/wreckx-in-scene/GoWallet/internal/wallet"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -26,22 +30,21 @@ func run() error {
 	if err := config.LoadDotEnv(); err != nil {
 		return err
 	}
-
 	cfg, err := wallet.LoadConfig()
 	if err != nil {
 		return err
 	}
-
 	log, err := logger.New(cfg.Env, cfg.LogLevel)
 	if err != nil {
 		return err
 	}
 
-	log.Debug("config loaded", "grpc_port", cfg.GRPCPort)
-	log.Info("wallet starting", "env", cfg.Env, "grpc_port", cfg.GRPCPort)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if err := metrics.Serve(ctx, log, "wallet"); err != nil {
+		return err
+	}
 
 	pool, err := postgres.NewPool(ctx, cfg.DBURL)
 	if err != nil {
@@ -62,8 +65,19 @@ func run() error {
 		outbox.NewRelay(pool, kafka, log).Run(ctx)
 	}()
 
-	srvErr := wallet.NewServer(cfg, log, pool).Run(ctx)
-	stop()      // cancel ctx even if Run failed early, so the relay stops too
-	<-relayDone // wait until the relay is really done with the DB
+	store := wallet.NewStore(pool)
+	srv := grpcserver.New(grpcserver.Options{
+		Name:       "wallet",
+		Port:       cfg.GRPCPort,
+		Log:        log,
+		DB:         pool,
+		Reflection: cfg.Env == "dev",
+		Register: func(s *grpc.Server) {
+			walletv1.RegisterWalletServiceServer(s, wallet.NewHandler(store, log))
+		},
+	})
+	srvErr := srv.Run(ctx)
+	stop()
+	<-relayDone
 	return srvErr
 }

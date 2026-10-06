@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -34,7 +35,7 @@ func New(o Options) *Server {
 	s := &Server{
 		opts: o,
 		log:  o.Log.With("service", o.Name),
-		srv:  grpc.NewServer(),
+		srv:  grpc.NewServer(grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor())),
 		hsrv: health.NewServer(),
 	}
 	s.hsrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)

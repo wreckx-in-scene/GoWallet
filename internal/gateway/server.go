@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	authv1 "github.com/wreckx-in-scene/GoWallet/gen/auth/v1"
 	paymentv1 "github.com/wreckx-in-scene/GoWallet/gen/payment/v1"
 	userv1 "github.com/wreckx-in-scene/GoWallet/gen/user/v1"
@@ -25,6 +28,15 @@ const (
 	paymentBudget  = 5 * time.Second
 )
 
+var (
+	httpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "http_requests_total", Help: "HTTP requests by route and status.",
+	}, []string{"route", "status"})
+	httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "http_request_duration_seconds", Help: "HTTP latency by route.", Buckets: prometheus.DefBuckets,
+	}, []string{"route"})
+)
+
 type Server struct {
 	cfg       Config
 	log       *slog.Logger
@@ -35,6 +47,16 @@ type Server struct {
 	verifier  *authn.Verifier
 	ipLimit   *ratelimit.Limiter
 	userLimit *ratelimit.Limiter
+}
+
+func (s *Server) instrument(pattern string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		start := time.Now()
+		next(sw, r)
+		httpRequests.WithLabelValues(pattern, strconv.Itoa(sw.code)).Inc()
+		httpDuration.WithLabelValues(pattern).Observe(time.Since(start).Seconds())
+	}
 }
 
 func NewServer(cfg Config, log *slog.Logger,
@@ -51,20 +73,25 @@ func NewServer(cfg Config, log *slog.Logger,
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+
+	handle := func(pattern string, h http.HandlerFunc) {
+		mux.HandleFunc(pattern, s.instrument(pattern, h))
+	}
+
+	handle("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	mux.HandleFunc("POST /auth/register", s.byIP(s.register))
-	mux.HandleFunc("POST /auth/login", s.byIP(s.login))
-	mux.HandleFunc("POST /auth/refresh", s.byIP(s.refresh))
-	mux.HandleFunc("POST /auth/logout", s.byIP(s.logout))
+	handle("POST /auth/register", s.byIP(s.register))
+	handle("POST /auth/login", s.byIP(s.login))
+	handle("POST /auth/refresh", s.byIP(s.refresh))
+	handle("POST /auth/logout", s.byIP(s.logout))
 
-	mux.HandleFunc("GET /me", s.authed(s.getMe))
-	mux.HandleFunc("PATCH /me", s.authed(s.updateMe))
-	mux.HandleFunc("GET /wallet", s.authed(s.getWallet))
-	mux.HandleFunc("POST /payments", s.authed(s.createPayment))
-	mux.HandleFunc("GET /payments/{id}", s.authed(s.getPayment))
+	handle("GET /me", s.authed(s.getMe))
+	handle("PATCH /me", s.authed(s.updateMe))
+	handle("GET /wallet", s.authed(s.getWallet))
+	handle("POST /payments", s.authed(s.createPayment))
+	handle("GET /payments/{id}", s.authed(s.getPayment))
 
 	return s.observe(mux)
 }

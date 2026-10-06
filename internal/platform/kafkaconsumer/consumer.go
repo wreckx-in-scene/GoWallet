@@ -6,7 +6,20 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/twmb/franz-go/pkg/kgo"
+)
+
+var (
+	recordsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "consumer_records_total", Help: "Records handled by this consumer.",
+	})
+	eventAge = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "consumer_event_age_seconds",
+		Help:    "Time from event creation to handling (a proxy for consumer lag).",
+		Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 300},
+	})
 )
 
 // Handler processes a batch. It must be idempotent: batches can be delivered
@@ -75,6 +88,11 @@ func (c *Consumer) Run(ctx context.Context, handle Handler) {
 		if ctx.Err() != nil {
 			return
 		}
+
+		for _, r := range recs {
+			eventAge.Observe(time.Since(r.Timestamp).Seconds())
+		}
+		recordsTotal.Add(float64(len(recs)))
 
 		if err := c.client.CommitRecords(ctx, recs...); err != nil && ctx.Err() == nil {
 			c.log.Error("commit offsets failed (batch will be redelivered)", "error", err)

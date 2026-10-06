@@ -14,6 +14,7 @@ import (
 	"github.com/wreckx-in-scene/GoWallet/internal/gateway"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -40,6 +41,9 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := metrics.Serve(ctx, log, "gateway"); err != nil {
+		return err
+	}
 
 	creds := grpc.WithTransportCredentials(insecure.NewCredentials())
 	var conns []*grpc.ClientConn

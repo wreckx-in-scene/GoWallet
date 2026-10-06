@@ -16,6 +16,7 @@ import (
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/grpcserver"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/metrics"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/outbox"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/postgres"
 	"google.golang.org/grpc"
@@ -44,6 +45,9 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := metrics.Serve(ctx, log, "payment"); err != nil {
+		return err
+	}
 
 	pool, err := postgres.NewPool(ctx, cfg.DBURL)
 	if err != nil {

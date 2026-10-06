@@ -12,7 +12,9 @@ import (
 	"github.com/wreckx-in-scene/GoWallet/internal/ledger"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/config"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/grpcserver"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/kafkaconsumer"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/logger"
+	"github.com/wreckx-in-scene/GoWallet/internal/platform/metrics"
 	"github.com/wreckx-in-scene/GoWallet/internal/platform/postgres"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -40,6 +42,9 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := metrics.Serve(ctx, log, "ledger"); err != nil {
+		return err
+	}
 
 	pool, err := postgres.NewPool(ctx, cfg.DBURL)
 	if err != nil {
@@ -54,17 +59,18 @@ func run() error {
 	}
 	defer walletConn.Close()
 
-	consumer, err := ledger.NewConsumer(pool, cfg.KafkaBrokers, log)
+	consumer, err := kafkaconsumer.New(cfg.KafkaBrokers, "ledger", "wallet.events", log)
 	if err != nil {
 		return err
 	}
 	defer consumer.Close()
+	writer := ledger.NewWriter(pool, log)
 
 	reconciler := ledger.NewReconciler(pool, walletv1.NewWalletServiceClient(walletConn), log, cfg.ReconcileEvery)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); consumer.Run(ctx) }()
+	go func() { defer wg.Done(); consumer.Run(ctx, writer.Handle) }()
 	go func() { defer wg.Done(); reconciler.Run(ctx) }()
 
 	// Health-only gRPC server (no business RPCs yet).
